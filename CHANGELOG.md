@@ -26,6 +26,8 @@ deprecation cycle is provided.
   instead of structurally empty ones, and bin column counts change.
 - `networkx>=3.5` is required, and `transform` refuses to run under a different
   NetworkX feature release than the one used at `fit`.
+- Python 3.11 is the minimum supported version. NetworkX 3.5 is 3.11+ only, so
+  the 3.10 support claimed by earlier metadata was not installable.
 
 ### Added
 

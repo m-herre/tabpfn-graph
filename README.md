@@ -32,7 +32,7 @@ different configuration, and `fit` warns when the training data looks like a mis
 pip install tabpfn-graph
 ```
 
-Python 3.10–3.14 is supported. The standard installation includes TabPFN, NetworkX (3.5 or
+Python 3.11–3.14 is supported. The standard installation includes TabPFN, NetworkX (3.5 or
 newer, because WL subtree hashes changed in that release), NumPy, pandas, SciPy,
 scikit-learn, and joblib. Optional extras are:
 
