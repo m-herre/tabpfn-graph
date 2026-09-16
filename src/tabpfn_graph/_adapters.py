@@ -169,29 +169,36 @@ def _pyg_to_networkx(data: Any) -> nx.Graph:
     return graph
 
 
-def simple_undirected_projection(
+def _project(
     graph: nx.Graph,
     *,
-    weight: str | None = None,
-    weight_agg: str = "sum",
-    distance_key: str | None = None,
-    distance_from_similarity: bool = True,
+    directed: bool,
+    weight: str | None,
+    weight_agg: str,
+    distance_key: str | None,
+    distance_from_similarity: bool,
 ) -> nx.Graph:
-    """Return the documented descriptor projection.
+    """Collapse a graph onto a simple projection, optionally keeping direction.
 
-    Nodes and node attributes are copied; direction, reciprocal arcs, parallel
-    edges, and self-loops are collapsed/dropped. Native statistics are always
-    computed before this projection.
+    Nodes and node attributes are copied and self-loops are dropped. Parallel
+    edges always collapse; reciprocal arcs collapse only when ``directed`` is
+    false.
 
     When ``weight`` names an edge attribute, the collapsed edge carries the
-    aggregate of every contributing arc under the key ``"weight"``. Arcs whose
-    weight is missing or non-numeric contribute nothing; an edge with no usable
-    weight is given weight ``0.0``. When ``distance_key`` is given, each edge
-    also receives a positive traversal cost: ``1 / weight`` for similarity
-    semantics, or the weight itself for distance semantics.
+    aggregate of every contributing arc under the key ``"weight"``, so
+    downstream callers always read the canonical key regardless of what the
+    attribute is called on the input graph. Arcs whose weight is missing or
+    non-numeric contribute nothing; an edge with no usable weight is given
+    weight ``0.0`` and, for path purposes, an infinite traversal cost.
+
+    A negative weight is rejected rather than coerced: under similarity
+    semantics it has no meaningful inverse, and under distance semantics it
+    makes shortest paths ill-defined. Silently mapping it to an infinite cost
+    would delete the edge from every path and betweenness descriptor while
+    leaving it in the degree and clustering descriptors.
     """
 
-    projected = nx.Graph()
+    projected: nx.Graph = nx.DiGraph() if directed else nx.Graph()
     projected.add_nodes_from((node, dict(attrs)) for node, attrs in graph.nodes(data=True))
     if weight is None:
         for u, v in graph.edges():
@@ -203,7 +210,7 @@ def simple_undirected_projection(
     for u, v, attrs in graph.edges(data=True):
         if u == v:
             continue
-        key = (u, v) if repr(u) <= repr(v) else (v, u)
+        key = (u, v) if directed or repr(u) <= repr(v) else (v, u)
         value = attrs.get(weight)
         collected.setdefault(key, [])
         if isinstance(value, bool | np.bool_) or value is None:
@@ -212,8 +219,17 @@ def simple_undirected_projection(
             number = float(value)
         except (TypeError, ValueError):
             continue
-        if np.isfinite(number):
-            collected[key].append(number)
+        if not np.isfinite(number):
+            continue
+        if number < 0:
+            semantics = "similarity" if distance_from_similarity else "distance"
+            raise ValueError(
+                f"edge attribute {weight!r} has a negative value ({number}) on edge "
+                f"({u!r}, {v!r}); negative weights cannot be turned into a traversal cost "
+                f"under edge_weight_semantics={semantics!r}. Rescale the weights to be "
+                "non-negative, or drop those edges before extraction."
+            )
+        collected[key].append(number)
 
     def aggregate(values: list[float]) -> float:
         array = np.asarray(values, dtype=float)
@@ -229,9 +245,64 @@ def simple_undirected_projection(
         total = aggregate(values) if values else 0.0
         attributes: dict[str, float] = {"weight": total}
         if distance_key is not None:
-            if distance_from_similarity:
-                attributes[distance_key] = 1.0 / total if total > 0 else np.inf
+            if not values:
+                # No usable weight anywhere on this edge: unreachable for paths.
+                attributes[distance_key] = float(np.inf)
+            elif distance_from_similarity:
+                # A zero similarity is the absence of a tie.
+                attributes[distance_key] = 1.0 / total if total > 0 else float(np.inf)
             else:
-                attributes[distance_key] = total if total > 0 else np.inf
+                # A zero distance is a legitimate free traversal.
+                attributes[distance_key] = total
         projected.add_edge(u, v, **attributes)
     return projected
+
+
+def simple_undirected_projection(
+    graph: nx.Graph,
+    *,
+    weight: str | None = None,
+    weight_agg: str = "sum",
+    distance_key: str | None = None,
+    distance_from_similarity: bool = True,
+) -> nx.Graph:
+    """Return the documented descriptor projection.
+
+    Nodes and node attributes are copied; direction, reciprocal arcs, parallel
+    edges, and self-loops are collapsed/dropped. Native statistics are always
+    computed before this projection.
+    """
+
+    return _project(
+        graph,
+        directed=False,
+        weight=weight,
+        weight_agg=weight_agg,
+        distance_key=distance_key,
+        distance_from_similarity=distance_from_similarity,
+    )
+
+
+def simple_directed_projection(
+    graph: nx.Graph,
+    *,
+    weight: str | None = None,
+    weight_agg: str = "sum",
+    distance_key: str | None = None,
+    distance_from_similarity: bool = True,
+) -> nx.Graph:
+    """Return the direction-preserving counterpart of the descriptor projection.
+
+    Used by descriptors that are only defined on directed graphs, so that they
+    see the configured edge weights under the canonical ``"weight"`` key with
+    parallel arcs aggregated the same way as everywhere else.
+    """
+
+    return _project(
+        graph,
+        directed=True,
+        weight=weight,
+        weight_agg=weight_agg,
+        distance_key=distance_key,
+        distance_from_similarity=distance_from_similarity,
+    )

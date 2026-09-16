@@ -35,7 +35,8 @@ deprecation cycle is provided.
   Laplacian spectrum.
 - Direction-aware columns whenever any training graph is directed: reciprocity,
   in/out degree summaries and correlation, strongly connected components,
-  largest-SCC fraction, acyclicity, and PageRank on the native arc set.
+  largest-SCC fraction, acyclicity, and PageRank on a direction-preserving
+  projection of the native arcs.
 - `motifs__square_clustering` and `basic__is_bipartite`, so bipartite datasets
   are not described entirely by identically-zero triangle columns.
 - Largest-component path descriptors (`paths__lcc_*`) and component size
@@ -55,6 +56,17 @@ deprecation cycle is provided.
 - Mixed directed/undirected batches produced silent NaN columns, or dropped the
   in/out degree columns entirely, depending on which graph came first. The
   schema now depends only on fitted state.
+- Directed PageRank read the native graph with the literal key `"weight"`, so a
+  configured `edge_weight` under any other name silently fell back to the
+  unweighted computation. It now runs on a direction-preserving projection that
+  normalizes the attribute onto the canonical key and aggregates parallel arcs.
+- Negative edge weights under `edge_weight_semantics="distance"` were converted
+  into infinite traversal costs, which silently removed the edge from path and
+  betweenness descriptors, leaked `inf` into the feature table with a `__valid`
+  flag of 1, and left the edge present in the degree and clustering
+  descriptors. Negative weights are now rejected under both semantics, during
+  `fit` and `transform`. A zero distance is treated as free traversal rather
+  than as an unreachable edge.
 - `build-system.requires` allowed hatchling 1.25/1.26, which cannot build the
   PEP 639 license metadata this project declares.
 - Removed the deprecated `License ::` classifier, which PyPI rejects alongside

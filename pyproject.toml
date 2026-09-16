@@ -38,13 +38,11 @@ dependencies = [
   "tabpfn>=2.0",
 ]
 
-# TODO: replace OWNER with the real account before the first release. The
-# publish workflow refuses to upload while the placeholder is present.
 [project.urls]
-Homepage = "https://github.com/OWNER/tabpfn-graph"
-Repository = "https://github.com/OWNER/tabpfn-graph"
-Issues = "https://github.com/OWNER/tabpfn-graph/issues"
-Changelog = "https://github.com/OWNER/tabpfn-graph/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/m-herre/tabpfn-graph"
+Repository = "https://github.com/m-herre/tabpfn-graph"
+Issues = "https://github.com/m-herre/tabpfn-graph/issues"
+Changelog = "https://github.com/m-herre/tabpfn-graph/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 fast = ["networkit>=11"]

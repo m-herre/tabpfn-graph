@@ -178,7 +178,8 @@ shortest paths, and the Laplacian spectrum to their weighted definitions. When `
 left unset but the training graphs carry numeric edge attributes, `fit` warns.
 
 Directed input additionally gets reciprocity, in/out degree summaries and their correlation,
-strongly connected components, acyclicity, and PageRank on the native arc set; PageRank on the
+strongly connected components, acyclicity, and PageRank on a direction-preserving projection of
+the native arcs; PageRank on the
 undirected projection is close to a rescaled degree. Mixed batches are supported and yield one
 schema, with undirected graphs described as their own symmetrization.
 

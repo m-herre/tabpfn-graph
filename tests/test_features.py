@@ -9,6 +9,7 @@ import pytest
 from pandas.testing import assert_frame_equal
 
 from tabpfn_graph import GraphFeatureExtractor
+from tabpfn_graph._adapters import simple_directed_projection
 from tabpfn_graph._features import column_report
 
 
@@ -334,11 +335,72 @@ def test_edge_weights_reach_structural_descriptors():
     assert weighted.loc[1, "paths__shortest__min"] == pytest.approx(1 / 99)
 
 
-def test_negative_similarity_weights_are_rejected():
+@pytest.mark.parametrize("semantics", ["similarity", "distance"])
+def test_negative_weights_are_rejected_under_both_semantics(semantics):
+    """A negative weight has no traversal cost; silently mapping it to an
+    infinite one would delete the edge from path and betweenness descriptors
+    while leaving it in the degree and clustering descriptors."""
     graph = nx.Graph()
-    graph.add_weighted_edges_from([(0, 1, -2.0)])
-    with pytest.raises(ValueError, match="edge_weight_semantics"):
-        GraphFeatureExtractor(features=("basic",), edge_weight="weight").fit([graph])
+    graph.add_edges_from([(0, 1, {"weight": -2.0}), (1, 2, {"weight": 1.0})])
+    with pytest.raises(ValueError, match="negative value"):
+        GraphFeatureExtractor(
+            features=("paths",), edge_weight="weight", edge_weight_semantics=semantics
+        ).fit([graph])
+
+
+def test_negative_weights_are_rejected_at_transform_time():
+    good = nx.Graph()
+    good.add_edges_from([(0, 1, {"weight": 1.0})])
+    bad = nx.Graph()
+    bad.add_edges_from([(0, 1, {"weight": -1.0})])
+    extractor = GraphFeatureExtractor(
+        features=("paths",), edge_weight="weight", edge_weight_semantics="distance"
+    ).fit([good])
+    with pytest.raises(ValueError, match="negative value"):
+        extractor.transform([bad])
+
+
+def test_zero_distance_weight_stays_traversable():
+    """Zero distance is free traversal, not an unreachable edge."""
+    graph = nx.Graph()
+    graph.add_edges_from([(0, 1, {"weight": 0.0}), (1, 2, {"weight": 2.0})])
+    table = GraphFeatureExtractor(
+        features=("paths",), edge_weight="weight", edge_weight_semantics="distance"
+    ).fit_transform([graph])
+    assert table.loc[0, "paths__shortest__count"] == 6
+    assert table.loc[0, "paths__diameter"] == 2
+    assert np.isfinite(table.select_dtypes("number").to_numpy()).all()
+
+
+def test_directed_pagerank_honours_a_non_default_weight_attribute_name():
+    """Directed PageRank runs on a projection, so it must read the configured
+    attribute name rather than the canonical 'weight' key of the projection."""
+    edges = [(0, 1), (0, 2), (1, 3), (2, 3), (3, 0), (1, 2)]
+    values = [50.0, 1.0, 1.0, 50.0, 1.0, 1.0]
+    named = nx.DiGraph()
+    named.add_edges_from([(u, v, {"weight": w}) for (u, v), w in zip(edges, values, strict=True)])
+    renamed = nx.DiGraph()
+    renamed.add_edges_from([(u, v, {"w": w}) for (u, v), w in zip(edges, values, strict=True)])
+    unweighted = nx.DiGraph()
+    unweighted.add_edges_from(edges)
+
+    def pagerank_std(graph, name):
+        table = GraphFeatureExtractor(features=("centrality",), edge_weight=name).fit_transform(
+            [graph]
+        )
+        return float(table.loc[0, "centrality__directed_pagerank__std"])
+
+    assert pagerank_std(named, "weight") == pytest.approx(pagerank_std(renamed, "w"))
+    assert pagerank_std(renamed, "w") != pytest.approx(pagerank_std(unweighted, None))
+
+
+def test_directed_projection_aggregates_parallel_arcs():
+    graph = nx.MultiDiGraph()
+    graph.add_edges_from([(0, 1, {"w": 2.0}), (0, 1, {"w": 3.0}), (1, 0, {"w": 1.0})])
+    projected = simple_directed_projection(graph, weight="w", weight_agg="sum")
+    assert projected.is_directed()
+    assert projected[0][1]["weight"] == 5.0
+    assert projected[1][0]["weight"] == 1.0
 
 
 def test_quantile_bins_are_deduplicated():

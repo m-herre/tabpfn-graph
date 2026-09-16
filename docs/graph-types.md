@@ -31,13 +31,22 @@ shortest-path descriptors need a traversal *cost*:
 
 - `"similarity"` (default): a larger weight is a stronger tie, so the cost is
   `1 / w`. Correlation, co-occurrence, capacity, and affinity weights are of
-  this kind. Negative weights are rejected because they cannot be inverted.
-- `"distance"`: the weight already is a length or cost, and is used directly.
+  this kind. A zero similarity is the absence of a tie, so it becomes an
+  infinite cost.
+- `"distance"`: the weight already is a length or cost and is used directly. A
+  zero distance is a legitimate free traversal, not an unreachable edge.
 
 Passing similarity weights to a shortest-path routine that treats them as
 distances inverts the meaning of every path descriptor; that is why this choice
 has no default guess. Parallel and reciprocal arcs collapse with
 `edge_weight_agg` (`sum` by default).
+
+Negative weights are rejected under both semantics, during `fit` and
+`transform`. They have no meaningful inverse and make shortest paths
+ill-defined, and mapping them to an infinite cost would silently delete the edge
+from the path and betweenness descriptors while leaving it in the degree and
+clustering descriptors. An edge whose weight is missing or non-numeric on every
+arc keeps weight `0.0` and is unreachable for path purposes.
 
 Weighted configuration adds strength (weighted degree) profiles and weighted
 clustering, and switches PageRank, betweenness, assortativity, shortest paths,
@@ -49,7 +58,8 @@ Citation, web, food-web, regulatory, and call graphs. Most descriptors are
 defined on undirected graphs and keep running on the projection, but direction
 gets its own columns whenever any training graph is directed: reciprocity,
 in/out degree distributions and their correlation, strongly connected component
-count, largest-SCC fraction, acyclicity, and PageRank on the native arc set.
+count, largest-SCC fraction, acyclicity, and PageRank on a direction-preserving
+projection of the native arcs.
 
 PageRank on the projection is close to a rescaled degree, so
 `centrality__directed_pagerank__*` is the informative one for directed input.

@@ -53,11 +53,22 @@ becomes a traversal cost — `"similarity"` uses `1 / w`, `"distance"` uses `w`
 — because path-like descriptors are otherwise inverted with respect to the
 domain's meaning.
 
+Both projections normalize the configured attribute onto the canonical
+``"weight"`` key, aggregating parallel arcs with `edge_weight_agg`. Descriptors
+therefore never read the input attribute name directly, which is what keeps a
+weight called `capacity` or `w` from silently falling back to the unweighted
+computation.
+
+Negative weights are rejected under both semantics, in `fit` and in `transform`.
+A zero weight means "no tie" (infinite cost) under similarity semantics and
+"free traversal" (zero cost) under distance semantics.
+
 ## Direction
 
 Whenever any training graph is directed, the table gains reciprocity, in/out
 degree summaries and their correlation, strongly connected component count,
-largest-SCC fraction, acyclicity, and PageRank on the native arc set. An
+largest-SCC fraction, acyclicity, and PageRank on a direction-preserving
+projection of the native arcs. An
 undirected graph in the same batch is described as its own symmetrization, so
 mixed batches keep one schema without missing values.
 

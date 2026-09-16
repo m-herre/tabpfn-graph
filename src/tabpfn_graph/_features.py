@@ -19,7 +19,7 @@ from joblib import Memory, Parallel, delayed
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from ._adapters import adapt_batch, simple_undirected_projection
+from ._adapters import adapt_batch, simple_directed_projection, simple_undirected_projection
 
 FeatureGroup = Literal[
     "basic",
@@ -402,7 +402,6 @@ class GraphFeatureExtractor(TransformerMixin, BaseEstimator):
         self.has_directed_ = any(graph.is_directed() for graph in batch.graphs)
         self.has_multigraph_ = any(graph.is_multigraph() for graph in batch.graphs)
         self._preflight(batch.graphs)
-        self._validate_weights(batch.graphs)
         self.attribute_schema_ = self._learn_attribute_schema(batch.graphs)
         self.emitted_attribute_schema_ = self._emitted_specs()
         self.graph_attribute_schema_ = self._learn_graph_attribute_schema(batch.graphs)
@@ -588,20 +587,6 @@ class GraphFeatureExtractor(TransformerMixin, BaseEstimator):
                 "pivot-sampled betweenness, and a truncated-spectrum heat trace"
             )
 
-    def _validate_weights(self, graphs: Sequence[nx.Graph]) -> None:
-        if self.edge_weight is None or self.edge_weight_semantics != "similarity":
-            return
-        for graph in graphs:
-            for *_, attrs in graph.edges(data=True):
-                value = attrs.get(self.edge_weight)
-                if _is_number(value) and float(value) < 0:
-                    raise ValueError(
-                        f"edge_weight={self.edge_weight!r} has a negative value with "
-                        "edge_weight_semantics='similarity', which cannot be inverted into a "
-                        "traversal cost; rescale the weights or pass "
-                        "edge_weight_semantics='distance'"
-                    )
-
     # ------------------------------------------------------------ projection
 
     def _projection(self, graph: nx.Graph) -> nx.Graph:
@@ -612,6 +597,15 @@ class GraphFeatureExtractor(TransformerMixin, BaseEstimator):
             weight=self.edge_weight,
             weight_agg=self.edge_weight_agg,
             distance_key=_DISTANCE_KEY,
+            distance_from_similarity=self.edge_weight_semantics == "similarity",
+        )
+
+    def _directed_projection(self, graph: nx.Graph) -> nx.Graph:
+        return simple_directed_projection(
+            graph,
+            weight=self.edge_weight,
+            weight_agg=self.edge_weight_agg,
+            distance_key=_DISTANCE_KEY if self.edge_weight is not None else None,
             distance_from_similarity=self.edge_weight_semantics == "similarity",
         )
 
@@ -1249,8 +1243,9 @@ class GraphFeatureExtractor(TransformerMixin, BaseEstimator):
         Betweenness uses Brandes-Pich pivot sampling in approximate mode, which
         estimates the same quantity on the whole graph rather than computing an
         exact value on a sampled subgraph. Directed inputs additionally get
-        PageRank on the native arc set, where PageRank is actually defined; on
-        an undirected graph it is close to a rescaled degree.
+        PageRank on a direction-preserving projection of the native arcs, where
+        PageRank is actually defined; on an undirected graph it is close to a
+        rescaled degree.
         """
 
         undefined = self._undefined
@@ -1302,8 +1297,12 @@ class GraphFeatureExtractor(TransformerMixin, BaseEstimator):
         for name, sequence in values.items():
             result.update(_summary(f"centrality__{name}", sequence, undefined=undefined))
         if self.has_directed_:
-            directed = graph if graph.is_directed() else projected
-            ranks = list(nx.pagerank(directed, weight=self._weight_key).values()) if graph else []
+            # The native graph stores weights under edge_weight; only the
+            # projection normalizes them to the canonical "weight" key.
+            directed = self._directed_projection(graph) if graph.is_directed() else projected
+            ranks = (
+                list(nx.pagerank(directed, weight=self._weight_key).values()) if directed else []
+            )
             result.update(_summary("centrality__directed_pagerank", ranks, undefined=undefined))
         return result
 
